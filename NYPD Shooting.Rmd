@@ -1,0 +1,132 @@
+---
+title: "NYPD Shooting Data"
+author: "Julian Moscotte"
+date: "2023-06-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading in Data
+``` {r connecting urls, echo=TRUE}
+url_in <- 'https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD'
+shooting_data <- read.csv(url_in)
+head(shooting_data)
+summary(shooting_data)
+```
+
+## Tidying - Removing unecessary variables, and changing format of date variable
+```{r tidying, echo=TRUE}
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+shooting_data <- shooting_data %>% 
+  select(-c('INCIDENT_KEY' ,'LOC_OF_OCCUR_DESC' , 'JURISDICTION_CODE', 'LOC_CLASSFCTN_DESC', 'X_COORD_CD' , 'Y_COORD_CD', 'Latitude', 'Longitude' , 'Lon_Lat'))
+shooting_data <- mutate(shooting_data, OCCUR_DATE = mdy(OCCUR_DATE))
+shooting_data <- mutate(shooting_data, TOTAL_SHOOTINGS = 1)
+shooting_data <- mutate(shooting_data, YEAR = year(OCCUR_DATE))
+
+for (i in 1:nrow(shooting_data)) {
+  if (shooting_data$STATISTICAL_MURDER_FLAG[i] == "true") {
+    shooting_data$STATISTICAL_MURDER_FLAG[i] <- 1
+  } else if (shooting_data$STATISTICAL_MURDER_FLAG[i] == "false") {
+    shooting_data$STATISTICAL_MURDER_FLAG[i] <- 0
+  }
+}
+shooting_data$STATISTICAL_MURDER_FLAG <- as.numeric(shooting_data$STATISTICAL_MURDER_FLAG)
+summary(shooting_data)
+```
+
+
+# Creating a by Boro file 
+```{r by Boro, echo=TRUE}
+shooting_by_Boro <- shooting_data %>%
+  group_by(BORO,VIC_RACE, YEAR) %>%
+  summarize(TOTAL_SHOOTINGS = sum(TOTAL_SHOOTINGS)) %>%
+  select (BORO, TOTAL_SHOOTINGS,VIC_RACE, YEAR)%>%
+  ungroup()
+```
+
+# Plotting by Boro
+```{r Boro Plot, echo=TRUE}
+p1 <- ggplot(data=shooting_by_Boro, aes(x = BORO, y=TOTAL_SHOOTINGS, fill=VIC_RACE)) +
+  geom_bar(stat="identity")
+p1
+```
+
+
+Here we have a bar chart with some interesting information on it. We have a bar for each Borough in NY plot against the total number of shootings recorded and further broken down by identified ethnicity of the victim. The first obvious piece of info we get from this is the large number of Black identifying victims across all the neighborhoods, with the largest proportion coming from Brooklyn. Diving further into Brooklyn's bar, we find that while Black victims are a majority across neighborhoods, Brooklyn is still significantly higher proportionally. We also see a fairly large portion of Hispanic/White Hispanic victims in the Brox, which is historically known to be home to a large Hispanic population. Lastly, from the low totals we can see that Staten Island by number seems like the safest (from gun violence) of the Boroughs of NY, however this is undercut by the fact that Staten Island has the lowest population (not included in the data set).
+
+# Creating a by Boro file 
+```{r by Boro2, echo=TRUE}
+shooting_by_Boro2 <- shooting_data %>%
+  group_by(BORO, YEAR) %>%
+  summarize(TOTAL_SHOOTINGS = sum(TOTAL_SHOOTINGS)) %>%
+  select (BORO, TOTAL_SHOOTINGS, YEAR)%>%
+  ungroup()
+```
+
+# Plotting over time
+``` {r time plot , echo=TRUE}
+p2 <- ggplot(data=shooting_by_Boro2, aes(x = YEAR, y=TOTAL_SHOOTINGS, color = BORO)) +
+  geom_line() +
+  scale_x_continuous(breaks=seq(2006, 2022, 2)) + 
+  theme_minimal()
+p2
+```
+
+Moving on, here we have a graph, plotting the total number of shootings by year over the stretch of years from 2006 to 2022, also color coated by neighborhood. A couple of interesting points to talk about here are the very obvious dips as well as the timing of these peaks. First, the most glaring trend we see is the slow drop in shootings between 2012 and 2018/2019. We can see a steady decrease in incidents across all boroughs (with Staten Island being the lowest drop). Leading into the COVID 19 Quarantine, there's a sharp and dramatic increase once Quarantine was lifted, a pattern seen across all Boroughs peaking close to previously set highs from around 2011. While its interesting to see this "valley" of shooting numbers, its also of note to point out that Staten Island has maintained a rather consitent number of shootings since 2006, albeit sharing lower scale trends of other neighborhoods. 
+
+# Creating filter for murders to shootings
+``` {r Murders to shootings, echo=TRUE}
+murder_data <- shooting_data %>%
+  group_by(BORO) %>%
+  summarize(TOTAL_SHOOTINGS = sum(TOTAL_SHOOTINGS), STATISTICAL_MURDER_FLAG = sum(STATISTICAL_MURDER_FLAG)) %>%
+  select (BORO, TOTAL_SHOOTINGS, STATISTICAL_MURDER_FLAG) %>%
+  ungroup()
+```
+
+# Plotting Murder vs shootings
+``` {r murder plot , echo=TRUE}
+p3 <- ggplot(murder_data) +
+  geom_bar(aes(x = BORO, y = TOTAL_SHOOTINGS, fill = "Total Shootings"), stat = "identity", position = "identity", width = 0.4) +
+  geom_bar(aes(x = BORO, y = STATISTICAL_MURDER_FLAG, fill = "Statistical Murder Flag"), stat = "identity", position = "identity", width = 0.4) +
+  scale_fill_manual(values = c("Total Shootings" = "blue", "Statistical Murder Flag" = "red")) +
+  labs(x = "Borough", y = "Count", title = "FATALITY by Borough") +
+  ylim(0, max(murder_data$TOTAL_SHOOTINGS)) +
+  theme_minimal()
+p3
+```
+
+Diving even deeper into our Borough analysis, we take a look at the Fatality rates of shootings in each neighborhood. While a shooting is no laughing matter either way, understanding where you're more at risk of losing your life due to the gun violence is important to deduce. Here we see relatively low fatality rates compared to shootings, which is mostly proportional to their total shootings. This goes to show that while some areas may see more incidences, the probability of dying remains similar meaning there is no difference in where the shooting occurs. 
+
+# Modeling murder vs Borough vs shootings
+```{r MODELING, echo=TRUE} 
+murder_data2 <- shooting_data %>%
+  group_by(BORO,YEAR) %>%
+  summarize(TOTAL_SHOOTINGS = sum(TOTAL_SHOOTINGS), STATISTICAL_MURDER_FLAG = sum(STATISTICAL_MURDER_FLAG)) %>%
+  select (BORO, TOTAL_SHOOTINGS, STATISTICAL_MURDER_FLAG, YEAR) %>%
+  ungroup()
+
+
+murder_data2 <- mutate(murder_data2, FATALITY_RATE = STATISTICAL_MURDER_FLAG/TOTAL_SHOOTINGS)
+mod <- lm(STATISTICAL_MURDER_FLAG ~ TOTAL_SHOOTINGS, data = murder_data2)
+summary(mod)
+murder_data2 <- mutate(murder_data2, PRED = predict(mod))
+
+borough_colors <- c("blue", "green", "yellow", "orange", "purple") # Add more colors if needed
+
+
+p4 <- ggplot(murder_data2) + 
+  geom_point(aes(x = TOTAL_SHOOTINGS, y = STATISTICAL_MURDER_FLAG, color = BORO)) + 
+  scale_color_manual(values = borough_colors) +
+  geom_point(aes(x = TOTAL_SHOOTINGS, y = PRED), color = "red") 
+p4
+```
+
+Finally, we take a look at the model of total shootings per Borough per year. Here we have the plotted model in red showing the prediction of fatal shootings/total shootings. Along with that we also see the color coated plots for the Boroughs showing the actual fatality rate for a given observed year. We see that for the most part our model is fairly close and our data has a trend it follows, however we can definitely see which neighborhoods had years that were much above the prediction with a few scattered below as well! 
+
+When talking about Bias, we must acknowledge what we came here to do. In this case with the data set being given to us I initially came into this with no point to prove however once the data analysis begun we could definitely see some racial bias. This may be because of the income disparity coupled with demographics but it was apparent to see that this data was not necessarily representative of the populations of each Borough. That along with the lack of data for certain variables such as location description, and (obviously much harder to nail down) suspect demo information, we can definitely see that some of this data isnt fully formed and not free of bias. Lastly this is only data that gets reported and has a victim willing to give detailed information. In the end, while this data is not the full story, it is still extremely useful to see the reported trends of shootings in NY and can help inform if places are being over policed or they truly are more dangerous (or safe, however you prefer to see it). 
+
